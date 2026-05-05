@@ -38,7 +38,7 @@ ANGLES = [
         "angle": "personal_story",
         "image_main": "I Started With Zero Experience",
         "image_sub":  "Now I Run a Remote Team 💼",
-        "prompt": """Write a Bluesky post (max 270 chars) in English.
+        "prompt": """Write a Bluesky post (max 240 chars — STRICTLY under 240, count carefully) in English.
 Angle: Personal story — started with no experience, now running a remote team doing simple online tasks.
 We hire people for: data entry, content review, research tasks.
 Flexible hours, weekly PayPal payments, $300-$800/month part-time, US residents.
@@ -51,7 +51,7 @@ Return ONLY the post text."""
         "angle": "social_proof",
         "image_main": "Our Team Member Just Got Paid 💸",
         "image_sub":  "Weekly PayPal Payment — On Time",
-        "prompt": """Write a Bluesky post (max 270 chars) in English.
+        "prompt": """Write a Bluesky post (max 240 chars — STRICTLY under 240, count carefully) in English.
 Angle: Social proof — celebrating a team member's weekly payment.
 Remote agency, simple online tasks, flexible hours, weekly PayPal payments.
 US residents only. No experience needed. $300-$800/month part-time.
@@ -64,7 +64,7 @@ Return ONLY the post text."""
         "angle": "scarcity",
         "image_main": "Only 3 Spots Left This Month",
         "image_sub":  "Remote Work — Weekly Pay — US Only",
-        "prompt": """Write a Bluesky post (max 270 chars) in English.
+        "prompt": """Write a Bluesky post (max 240 chars — STRICTLY under 240, count carefully) in English.
 Angle: Limited spots open this month for remote workers.
 Simple online tasks, flexible hours, $300-$800/month, weekly PayPal payments.
 US residents only. No experience required.
@@ -77,7 +77,7 @@ Return ONLY the post text."""
         "angle": "beginner_friendly",
         "image_main": "No Experience? No Problem.",
         "image_sub":  "We Train You — You Earn Weekly 🎯",
-        "prompt": """Write a Bluesky post (max 270 chars) in English.
+        "prompt": """Write a Bluesky post (max 240 chars — STRICTLY under 240, count carefully) in English.
 Angle: Perfect for beginners — no experience needed, full training provided.
 Remote agency doing simple tasks: data entry, content review, research.
 Flexible schedule, weekly PayPal, $300-$800/month, US residents only.
@@ -90,7 +90,7 @@ Return ONLY the post text."""
         "angle": "lifestyle",
         "image_main": "Work From Anywhere. Earn Weekly.",
         "image_sub":  "Flexible Hours — Simple Tasks 🌍",
-        "prompt": """Write a Bluesky post (max 270 chars) in English.
+        "prompt": """Write a Bluesky post (max 240 chars — STRICTLY under 240, count carefully) in English.
 Angle: Lifestyle freedom — work from anywhere on your own schedule.
 Remote agency, simple online tasks, flexible hours, weekly PayPal payments.
 $300-$800/month part-time. US residents only. No experience needed.
@@ -118,7 +118,10 @@ def generate_post_text(angle_data: dict) -> str:
         timeout=30,
     )
     response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"].strip()
+    text = response.json()["choices"][0]["message"]["content"].strip()
+    if len(text) > 280:
+        text = text[:277] + "..."
+    return text
 
 
 # ─── BLUESKY: LOGIN ───────────────────────────────────────────────────────────
