@@ -1,20 +1,19 @@
-name: 🤖 Bluesky Multi-Account Poster
+name: 🎬 Bluesky Movie Poster
 
 on:
   schedule:
     # USA Eastern Time (EST = UTC-5 / EDT = UTC-4)
-    # প্রতিদিন ৫ বার — প্রতিবারে ৫ account-এ একসাথে পোস্ট
-    - cron: '0 13 * * *'   # USA EST 08:00 AM  ☀️ Morning
-    - cron: '0 17 * * *'   # USA EST 12:00 PM  🍔 Lunch
-    - cron: '0 22 * * *'   # USA EST 05:00 PM  🌆 Evening
-    - cron: '0 1  * * *'   # USA EST 08:00 PM  🌙 Night
-    - cron: '0 3  * * *'   # USA EST 10:00 PM  🌃 Late Night
+    # 5 posts per day — each run posts to all accounts simultaneously
+    - cron: '0 13 * * *'   # 08:00 AM EST  ☀️ Morning
+    - cron: '0 17 * * *'   # 12:00 PM EST  🍔 Lunch
+    - cron: '0 22 * * *'   # 05:00 PM EST  🌆 Evening
+    - cron: '0 1  * * *'   # 08:00 PM EST  🌙 Night
+    - cron: '0 3  * * *'   # 10:00 PM EST  🌃 Late Night
 
-  # হাতে চালাতে চাইলে
   workflow_dispatch:
     inputs:
       run_reason:
-        description: 'Manual run কারণ'
+        description: 'Manual run reason'
         required: false
         default: 'Test run'
 
@@ -33,12 +32,17 @@ jobs:
           python-version: '3.12'
 
       - name: 📦 Install dependencies
-        run: pip install requests pillow
+        run: pip install requests pillow openai
 
-      - name: 🚀 Run Multi-Account Poster
+      - name: 🚀 Run Movie Poster Bot
         env:
-          DEEPSEEK_API_KEY:  ${{ secrets.DEEPSEEK_API_KEY }}
+          # NVIDIA NIM API (replaces DeepSeek)
+          NVIDIA_API_KEY:    ${{ secrets.NVIDIA_API_KEY }}
 
+          # TMDB API Key
+          TMDB_API_KEY:      ${{ secrets.TMDB_API_KEY }}
+
+          # Bluesky Accounts
           BSKY_HANDLE_1:     ${{ secrets.BSKY_HANDLE_1 }}
           BSKY_PASSWORD_1:   ${{ secrets.BSKY_PASSWORD_1 }}
 
@@ -59,7 +63,7 @@ jobs:
       - name: 📊 Summary
         if: always()
         run: |
-          echo "## 📱 Bluesky Multi-Account Poster" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎬 Bluesky Movie Poster Bot" >> $GITHUB_STEP_SUMMARY
           echo "- **UTC Time:** $(date '+%Y-%m-%d %H:%M')" >> $GITHUB_STEP_SUMMARY
           echo "- **USA EST:** $(TZ='America/New_York' date '+%Y-%m-%d %H:%M')" >> $GITHUB_STEP_SUMMARY
           echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
