@@ -168,18 +168,26 @@ def generate_post_text(angle_data: dict, movie: dict) -> str:
 
     full_text = ""
     completion = nim_client.chat.completions.create(
-        model="deepseek-ai/deepseek-r1-distill-llama-70b",
+        model="deepseek-ai/deepseek-v4-flash",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.9,
+        temperature=1,
         top_p=0.95,
-        max_tokens=400,
+        max_tokens=16384,
+        extra_body={"chat_template_kwargs": {"thinking": True, "reasoning_effort": "high"}},
         stream=True,
     )
 
     for chunk in completion:
         if not getattr(chunk, "choices", None):
             continue
-        delta   = chunk.choices[0].delta
+        delta = chunk.choices[0].delta
+        
+        # Handle reasoning content if present
+        reasoning = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+        if reasoning:
+            full_text += reasoning
+        
+        # Handle regular content
         content = getattr(delta, "content", None)
         if content:
             full_text += content
