@@ -1,18 +1,17 @@
 import os
 import re
+import io
 import time
-import json
 import random
 import requests
 import tempfile
 from datetime import datetime, timezone
 from openai import OpenAI
-from image_gen import generate_image_from_poster, generate_fallback_image
 
 # ─── ACCOUNTS CONFIG ──────────────────────────────────────────────────────────
 def load_accounts() -> list[dict]:
     accounts = []
-    for i in range(1, 6):  # max 5 accounts
+    for i in range(1, 6):
         handle   = os.environ.get(f"BSKY_HANDLE_{i}")
         password = os.environ.get(f"BSKY_PASSWORD_{i}")
         if handle and password:
@@ -103,9 +102,15 @@ Return ONLY the post text, nothing else."""
     },
 ]
 
-# ─── TMDB: FETCH TRENDING MOVIES ─────────────────────────────────────────────
+# ─── TMDB: FETCH & SORT MOVIES ────────────────────────────────────────────────
 def fetch_tmdb_movies() -> list[dict]:
-    """Fetch trending movies from TMDB this week."""
+    """
+    Fetch trending movies (this week) from TMDB.
+    Priority:
+      1. 2026 releases with vote_average >= 5  (sorted by vote desc)
+      2. Other years with vote_average >= 5     (sorted by vote desc)
+      3. Rest                                   (sorted by vote desc)
+    """
     url = "https://api.themoviedb.org/3/trending/movie/week"
     r = requests.get(
         url,
@@ -121,15 +126,37 @@ def fetch_tmdb_movies() -> list[dict]:
             continue
         release_year = (m.get("release_date") or "")[:4] or "N/A"
         poster_path  = m.get("poster_path")
-        poster_url   = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
+        poster_url   = f"https://image.tmdb.org/t/p/w780{poster_path}" if poster_path else None
+        vote         = float(m.get("vote_average") or 0)
         movies.append({
             "title":      m["title"],
             "year":       release_year,
             "overview":   m["overview"][:300],
-            "rating":     m.get("vote_average", 0),
+            "rating":     vote,
             "poster_url": poster_url,
         })
+
+    def sort_key(mv):
+        is_2026   = mv["year"] == "2026"
+        good_vote = mv["rating"] >= 5
+        return (is_2026 and good_vote, good_vote, mv["rating"])
+
+    movies.sort(key=sort_key, reverse=True)
     return movies
+
+# ─── DOWNLOAD TMDB POSTER → TEMP FILE ────────────────────────────────────────
+def download_poster_to_file(poster_url: str) -> str | None:
+    try:
+        resp = requests.get(poster_url, timeout=20)
+        resp.raise_for_status()
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        tmp.write(resp.content)
+        tmp.close()
+        print(f"  ✅ Poster downloaded ({len(resp.content)//1024} KB)")
+        return tmp.name
+    except Exception as e:
+        print(f"  ⚠️  Poster download failed: {e}")
+        return None
 
 # ─── NVIDIA NIM: GENERATE POST TEXT ──────────────────────────────────────────
 def generate_post_text(angle_data: dict, movie: dict) -> str:
@@ -152,25 +179,19 @@ def generate_post_text(angle_data: dict, movie: dict) -> str:
     for chunk in completion:
         if not getattr(chunk, "choices", None):
             continue
-        delta = chunk.choices[0].delta
-        # Skip reasoning/thinking tokens — only keep final content
+        delta   = chunk.choices[0].delta
         content = getattr(delta, "content", None)
         if content:
             full_text += content
 
     text = full_text.strip()
-
-    # Strip markdown quotes if model wraps in them
     text = re.sub(r'^[""]|[""]$', '', text).strip()
 
-    # Hard cap at 300 chars
     if len(text) > 300:
-        # Try to cut at a word boundary
         cutoff = text[:297].rsplit(" ", 1)[0]
-        text = cutoff + "..."
+        text   = cutoff + "..."
 
     return text
-
 
 # ─── BLUESKY: LOGIN ───────────────────────────────────────────────────────────
 def bsky_login(handle: str, password: str) -> dict:
@@ -182,7 +203,6 @@ def bsky_login(handle: str, password: str) -> dict:
     r.raise_for_status()
     return r.json()
 
-
 # ─── BLUESKY: IMAGE UPLOAD ────────────────────────────────────────────────────
 def bsky_upload_image(session: dict, image_path: str) -> dict | None:
     try:
@@ -192,7 +212,7 @@ def bsky_upload_image(session: dict, image_path: str) -> dict | None:
             "https://bsky.social/xrpc/com.atproto.repo.uploadBlob",
             headers={
                 "Authorization": f"Bearer {session['accessJwt']}",
-                "Content-Type": "image/jpeg",
+                "Content-Type":  "image/jpeg",
             },
             data=img_data,
             timeout=30,
@@ -208,10 +228,8 @@ def bsky_upload_image(session: dict, image_path: str) -> dict | None:
         except:
             pass
 
-
 # ─── BLUESKY: POST ────────────────────────────────────────────────────────────
 def bsky_post(session: dict, text: str, image_path: str | None = None, movie_title: str = "") -> str:
-    # Build hashtag facets
     facets = []
     for match in re.finditer(r"#(\w+)", text):
         tag   = match.group(1)
@@ -248,28 +266,26 @@ def bsky_post(session: dict, text: str, image_path: str | None = None, movie_tit
     r.raise_for_status()
     return r.json()["uri"]
 
-
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
     accounts = load_accounts()
-    print(f"🚀 Bluesky Movie Poster — Started!")
+    print(f"🚀 Bluesky Movie Bot — Started!")
     print(f"👥 Accounts: {len(accounts)}")
     print()
 
-    # Fetch trending movies from TMDB
     print("🎬 Fetching trending movies from TMDB...")
     try:
         movies = fetch_tmdb_movies()
         if not movies:
             print("❌ No movies fetched from TMDB!")
             exit(1)
-        print(f"✅ Fetched {len(movies)} trending movies")
+        print(f"✅ Fetched {len(movies)} movies")
+        print(f"🏆 Top pick: {movies[0]['title']} ({movies[0]['year']}) ⭐ {movies[0]['rating']:.1f}")
     except Exception as e:
         print(f"❌ TMDB fetch failed: {e}")
         exit(1)
 
-    # Assign unique angle + movie to each account
-    angles     = random.sample(ANGLES, min(len(accounts), len(ANGLES)))
+    angles = random.sample(ANGLES, min(len(accounts), len(ANGLES)))
     while len(angles) < len(accounts):
         angles.append(random.choice(ANGLES))
 
@@ -280,42 +296,29 @@ def main():
     results = []
 
     for i, (account, angle_data, movie) in enumerate(zip(accounts, angles, selected_movies)):
-        print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print(f"👤 Account {account['id']}: {account['handle']}")
-        print(f"🎬 Movie: {movie['title']} ({movie['year']})")
+        print(f"🎬 Movie: {movie['title']} ({movie['year']}) ⭐ {movie['rating']:.1f}")
         print(f"📌 Angle: {angle_data['angle']}")
 
         try:
-            # 1. Login
             print(f"  🔑 Logging in...")
             session = bsky_login(account["handle"], account["password"])
-            print(f"  ✅ Login successful!")
+            print(f"  ✅ Login OK")
 
-            # 2. Generate post text via NVIDIA NIM
-            print(f"  🤖 Generating post text via NVIDIA NIM...")
+            print(f"  🤖 Generating post via NVIDIA NIM...")
             post_text = generate_post_text(angle_data, movie)
-            print(f"  ✍️  {post_text[:100]}...")
+            print(f"  ✍️  {post_text[:120]}...")
             print(f"  📏 {len(post_text)} chars")
 
-            # 3. Get movie poster image from TMDB
-            print(f"  🖼️  Preparing movie poster image...")
+            image_path = None
             if movie["poster_url"]:
-                image_path = generate_image_from_poster(
-                    poster_url  = movie["poster_url"],
-                    movie_title = movie["title"],
-                    year        = movie["year"],
-                    site_label  = "mycinebd.com",
-                )
+                print(f"  🖼️  Downloading TMDB poster...")
+                image_path = download_poster_to_file(movie["poster_url"])
             else:
-                image_path = generate_fallback_image(
-                    movie_title = movie["title"],
-                    year        = movie["year"],
-                    site_label  = "mycinebd.com",
-                )
-            print(f"  ✅ Image ready!")
+                print(f"  ⚠️  No poster URL — posting without image")
 
-            # 4. Post to Bluesky
-            print(f"  📤 Posting...")
+            print(f"  📤 Posting to Bluesky...")
             uri = bsky_post(session, post_text, image_path, movie_title=movie["title"])
             print(f"  ✅ Posted! {uri}")
             results.append({"account": account["handle"], "status": "success", "uri": uri, "movie": movie["title"]})
@@ -328,7 +331,6 @@ def main():
             print(f"  ⏳ Waiting 10 seconds...")
             time.sleep(10)
 
-    # Summary
     success = sum(1 for r in results if r["status"] == "success")
     failed  = sum(1 for r in results if r["status"] == "failed")
     print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
