@@ -2,22 +2,20 @@ name: Bluesky Movie Poster Bot
 
 on:
   schedule:
-    # Runs 4× a day: 6 AM, 12 PM, 6 PM, 10 PM UTC
     - cron: "0 6 * * *"
     - cron: "0 12 * * *"
     - cron: "0 18 * * *"
     - cron: "0 22 * * *"
-  workflow_dispatch:   # Allow manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
   post:
     name: Generate & Post Movie Content
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     env:
       TMDB_API_KEY:    ${{ secrets.TMDB_API_KEY }}
-      NVIDIA_API_KEY:  ${{ secrets.NVIDIA_API_KEY }}
 
       BSKY_HANDLE_1:   ${{ secrets.BSKY_HANDLE_1 }}
       BSKY_PASSWORD_1: ${{ secrets.BSKY_PASSWORD_1 }}
