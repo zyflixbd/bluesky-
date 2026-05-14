@@ -1,0 +1,51 @@
+name: Bluesky Movie Poster Bot
+
+on:
+  schedule:
+    # Runs 4× a day: 6 AM, 12 PM, 6 PM, 10 PM UTC
+    - cron: "0 6 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 18 * * *"
+    - cron: "0 22 * * *"
+  workflow_dispatch:   # Allow manual trigger from GitHub UI
+
+jobs:
+  post:
+    name: Generate & Post Movie Content
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      TMDB_API_KEY:    ${{ secrets.TMDB_API_KEY }}
+      NVIDIA_API_KEY:  ${{ secrets.NVIDIA_API_KEY }}
+
+      BSKY_HANDLE_1:   ${{ secrets.BSKY_HANDLE_1 }}
+      BSKY_PASSWORD_1: ${{ secrets.BSKY_PASSWORD_1 }}
+
+      BSKY_HANDLE_2:   ${{ secrets.BSKY_HANDLE_2 }}
+      BSKY_PASSWORD_2: ${{ secrets.BSKY_PASSWORD_2 }}
+
+      BSKY_HANDLE_3:   ${{ secrets.BSKY_HANDLE_3 }}
+      BSKY_PASSWORD_3: ${{ secrets.BSKY_PASSWORD_3 }}
+
+      BSKY_HANDLE_4:   ${{ secrets.BSKY_HANDLE_4 }}
+      BSKY_PASSWORD_4: ${{ secrets.BSKY_PASSWORD_4 }}
+
+      BSKY_HANDLE_5:   ${{ secrets.BSKY_HANDLE_5 }}
+      BSKY_PASSWORD_5: ${{ secrets.BSKY_PASSWORD_5 }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        run: python bot.py
