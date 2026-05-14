@@ -120,11 +120,11 @@ def generate_post(movie: dict) -> str:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_prompt},
         ],
-        temperature=1,
+        temperature=0.9,
         top_p=0.95,
-        max_tokens=512,
+        max_tokens=300,
         extra_body={
-            "chat_template_kwargs": {"thinking": True, "reasoning_effort": "high"}
+            "chat_template_kwargs": {"thinking": False}
         },
         stream=True,
     )
