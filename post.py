@@ -170,10 +170,10 @@ def generate_post_text(angle_data: dict, movie: dict) -> str:
     completion = nim_client.chat.completions.create(
         model="deepseek-ai/deepseek-v4-flash",
         messages=[{"role": "user", "content": prompt}],
-        temperature=1,
+        temperature=0.8,
         top_p=0.95,
-        max_tokens=16384,
-        extra_body={"chat_template_kwargs": {"thinking": True, "reasoning_effort": "high"}},
+        max_tokens=800,   # ✅ 300-char post-এ 16384 লাগে না — 800 যথেষ্ট
+        extra_body={"chat_template_kwargs": {"thinking": False}},  # ✅ thinking বন্ধ — সবচেয়ে বড় স্পিড গেইন
         stream=True,
     )
 
@@ -333,8 +333,8 @@ def main():
             results.append({"account": account["handle"], "status": "failed", "error": str(e)})
 
         if i < len(accounts) - 1:
-            print(f"  ⏳ Waiting 10 seconds...")
-            time.sleep(10)
+            print(f"  ⏳ Waiting 3 seconds...")
+            time.sleep(3)  # ✅ 10s → 3s, rate limit এড়াতে এটুকুই যথেষ্ট
 
     success = sum(1 for r in results if r["status"] == "success")
     failed  = sum(1 for r in results if r["status"] == "failed")
