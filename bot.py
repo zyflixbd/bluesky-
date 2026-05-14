@@ -115,7 +115,7 @@ def generate_post(movie: dict) -> str:
 
     full_text = ""
     completion = NIM_CLIENT.chat.completions.create(
-        model="deepseek-ai/deepseek-r1-0528-qwen3-8b",
+        model="deepseek-ai/deepseek-v4-flash",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_prompt},
@@ -124,7 +124,7 @@ def generate_post(movie: dict) -> str:
         top_p=0.95,
         max_tokens=512,
         extra_body={
-            "chat_template_kwargs": {"thinking": True, "reasoning_effort": "low"}
+            "chat_template_kwargs": {"thinking": True, "reasoning_effort": "high"}
         },
         stream=True,
     )
