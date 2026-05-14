@@ -166,7 +166,7 @@ def generate_post_text(angle_data: dict, movie: dict) -> str:
         overview = movie["overview"],
     )
 
-    full_text = ""
+    post_text_only = ""
     completion = nim_client.chat.completions.create(
         model="deepseek-ai/deepseek-v4-flash",
         messages=[{"role": "user", "content": prompt}],
@@ -181,18 +181,15 @@ def generate_post_text(angle_data: dict, movie: dict) -> str:
         if not getattr(chunk, "choices", None):
             continue
         delta = chunk.choices[0].delta
-        
-        # Handle reasoning content if present
-        reasoning = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
-        if reasoning:
-            full_text += reasoning
-        
-        # Handle regular content
+
+        # ✅ FIX: reasoning/thinking tokens আলাদা রাখা হচ্ছে — caption-এ যাবে না
+        # reasoning = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+        # শুধু actual post content নেওয়া হচ্ছে
         content = getattr(delta, "content", None)
         if content:
-            full_text += content
+            post_text_only += content
 
-    text = full_text.strip()
+    text = post_text_only.strip()
     text = re.sub(r'^[""]|[""]$', '', text).strip()
 
     if len(text) > 300:
@@ -351,4 +348,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
