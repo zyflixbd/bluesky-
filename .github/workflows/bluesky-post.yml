@@ -36,7 +36,7 @@ jobs:
 
       - name: 📦 Install dependencies
         # ✅ Bug 4 Fix: pillow বাদ — post.py-তে PIL কোথাও ব্যবহার হয় না
-        run: pip install requests openai
+        run: pip install -r requirements.txt
 
       - name: 🚀 Run Movie Poster Bot
         env:
