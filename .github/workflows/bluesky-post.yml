@@ -20,7 +20,8 @@ on:
 jobs:
   post-to-bluesky:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # ✅ Bug 6 Fix: 15 → 5 মিনিট (fixes-এর পর 1-2 মিনিটেই শেষ হয়)
+    timeout-minutes: 5
 
     steps:
       - name: 📥 Checkout
@@ -30,13 +31,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          # ✅ Bug 5 Fix: pip cache — প্রতি run-এ নতুন install বাদ (~45s বাঁচবে)
+          cache: 'pip'
 
       - name: 📦 Install dependencies
-        run: pip install requests pillow openai
+        # ✅ Bug 4 Fix: pillow বাদ — post.py-তে PIL কোথাও ব্যবহার হয় না
+        run: pip install requests openai
 
       - name: 🚀 Run Movie Poster Bot
         env:
-          # NVIDIA NIM API (replaces DeepSeek)
+          # NVIDIA NIM API
           NVIDIA_API_KEY:    ${{ secrets.NVIDIA_API_KEY }}
 
           # TMDB API Key
