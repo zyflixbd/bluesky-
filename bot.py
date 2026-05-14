@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Multi-Account Bluesky Movie Poster Bot
-- Fetches trending/hidden gem movies from TMDB
-- Generates organic fan-style posts via NVIDIA NIM (DeepSeek)
-- Posts with movie poster image to multiple Bluesky accounts
+- TMDB থেকে movie info fetch করে
+- Python দিয়েই post লেখে (কোনো AI API নেই)
+- Multiple Bluesky account-এ movie poster সহ post করে
 """
 
 import os
@@ -13,26 +13,15 @@ import random
 import requests
 import time
 from datetime import datetime, timezone
-from openai import OpenAI
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-TMDB_API_KEY   = os.environ.get("TMDB_API_KEY")
-NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
-
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
 if not TMDB_API_KEY:
     print("TMDB_API_KEY missing!"); exit(1)
-if not NVIDIA_API_KEY:
-    print("NVIDIA_API_KEY missing!"); exit(1)
 
 TMDB_BASE  = "https://api.themoviedb.org/3"
 TMDB_IMAGE = "https://image.tmdb.org/t/p/w500"
 BSKY_API   = "https://bsky.social/xrpc"
-
-# ── NVIDIA NIM client (same as working file) ───────────────────────────────────
-nvidia_client = OpenAI(
-    base_url="https://integrate.api.nvidia.com/v1",
-    api_key=NVIDIA_API_KEY,
-)
 
 # ── Load Bluesky accounts ──────────────────────────────────────────────────────
 def load_accounts():
@@ -58,6 +47,13 @@ TMDB_SOURCES = [
         "vote_average.gte": 7.5,
         "page": random.randint(1, 8),
     }),
+    ("discover/movie",        {
+        "language": "en-US",
+        "sort_by": "popularity.desc",
+        "vote_average.lte": 7.0,
+        "vote_count.gte": 200,
+        "page": random.randint(1, 5),
+    }),
 ]
 
 def fetch_movies():
@@ -77,60 +73,146 @@ def fetch_movie_details(movie_id):
     r.raise_for_status()
     return r.json()
 
-# ── AI Post Generator (exact same pattern as working file) ─────────────────────
-SYSTEM_PROMPT = """You are a passionate American movie fan writing short Bluesky posts.
+# ── Post Templates ─────────────────────────────────────────────────────────────
+# প্রতিটা template-এ {title}, {year}, {rating}, {genre}, {overview_hook} use হবে
 
-STRICT RULES:
-1. Natural conversational American tone — like a real film fan, NOT a critic
-2. Pick ONE angle: trending movie, hidden gem, plot twist, shocking ending, or underrated film
-3. Make readers curious enough to visit mycinebd.com
-4. Add 2-4 relevant hashtags at the end
-5. Very last line must be exactly: mycinebd.com
-6. Zero emojis anywhere
-7. Never use: FREE DOWNLOAD, WATCH FREE, HD DOWNLOAD
-8. Total post: 220 to 280 characters
-9. Output ONLY the post text, nothing else"""
+TEMPLATES = [
+    # Hidden gem angle
+    "Not enough people are talking about {title} ({year}). "
+    "{overview_hook} "
+    "Sitting at {rating}/10 and it deserves way more attention. "
+    "{hashtags}\nmycinebd.com",
 
-def generate_post(movie, variation=0):
+    # Plot twist angle
+    "If you haven't seen {title} yet, stop what you're doing. "
+    "{overview_hook} "
+    "The kind of film that stays with you for days. "
+    "{hashtags}\nmycinebd.com",
+
+    # Curious angle
+    "{title} ({year}) is one of those films that sneaks up on you. "
+    "{overview_hook} "
+    "Rated {rating}/10 — and honestly, that feels low. "
+    "{hashtags}\nmycinebd.com",
+
+    # Recommendation angle
+    "Genuine recommendation: watch {title}. "
+    "{overview_hook} "
+    "A {genre} film that actually delivers on its premise. {rating}/10. "
+    "{hashtags}\nmycinebd.com",
+
+    # Underrated angle
+    "Slept on {title} ({year}) for too long. Finally watched it. "
+    "{overview_hook} "
+    "Do yourself a favor and check it out. "
+    "{hashtags}\nmycinebd.com",
+
+    # Shocking ending angle
+    "Just finished {title} and I'm still processing. "
+    "{overview_hook} "
+    "A {rating}/10 {genre} that earns every bit of that score. "
+    "{hashtags}\nmycinebd.com",
+
+    # Trending angle
+    "Everyone's watching {title} right now and for good reason. "
+    "{overview_hook} "
+    "One of the better {genre} films in recent memory. "
+    "{hashtags}\nmycinebd.com",
+
+    # Question hook angle
+    "What happens when {overview_hook} "
+    "{title} ({year}) answers that question better than most. "
+    "Solid {rating}/10. "
+    "{hashtags}\nmycinebd.com",
+]
+
+GENRE_HASHTAGS = {
+    "Action":    ["#Action", "#ActionMovies"],
+    "Adventure": ["#Adventure", "#MustWatch"],
+    "Animation": ["#Animation", "#AnimatedFilm"],
+    "Comedy":    ["#Comedy", "#ComedyMovies"],
+    "Crime":     ["#Crime", "#CrimeThriller"],
+    "Drama":     ["#Drama", "#FilmDrama"],
+    "Fantasy":   ["#Fantasy", "#FantasyFilm"],
+    "Horror":    ["#Horror", "#HorrorMovies"],
+    "Mystery":   ["#Mystery", "#MysteryFilm"],
+    "Romance":   ["#Romance", "#RomanceFilm"],
+    "Sci-Fi":    ["#SciFi", "#ScienceFiction"],
+    "Thriller":  ["#Thriller", "#ThrillerMovies"],
+    "War":       ["#WarFilm", "#War"],
+    "Western":   ["#Western", "#WesternFilm"],
+}
+
+GENERAL_HASHTAGS = ["#Movies", "#Film", "#Cinema", "#FilmTwitter", "#MovieRecommendation",
+                    "#MustWatch", "#Filmlovers", "#NowWatching", "#FilmBuff"]
+
+def pick_hashtags(genres: list) -> str:
+    tags = []
+    for g in genres[:2]:
+        if g in GENRE_HASHTAGS:
+            tags.extend(GENRE_HASHTAGS[g])
+    # Add 1-2 general tags
+    tags += random.sample(GENERAL_HASHTAGS, 2)
+    # Dedupe, limit to 4
+    seen = []
+    for t in tags:
+        if t not in seen:
+            seen.append(t)
+    return " ".join(seen[:4])
+
+def make_overview_hook(overview: str) -> str:
+    """Turn TMDB overview into a punchy short hook."""
+    if not overview:
+        return "This one is hard to describe without spoiling it."
+    # Take first sentence or first 120 chars
+    sentences = overview.split(". ")
+    hook = sentences[0].strip()
+    if not hook.endswith("."):
+        hook += "."
+    if len(hook) > 130:
+        hook = hook[:127] + "..."
+    return hook
+
+def generate_post(movie: dict, variation: int = 0) -> str:
     title    = movie.get("title", "Unknown")
-    overview = (movie.get("overview") or "")[:300]
     year     = (movie.get("release_date") or "")[:4]
-    rating   = movie.get("vote_average", 0)
-    genres   = ", ".join(g["name"] for g in movie.get("genres", [])[:3])
-    kw_raw   = movie.get("keywords", {}).get("keywords", [])
-    keywords = ", ".join(k["name"] for k in kw_raw[:4])
+    rating   = round(movie.get("vote_average", 0), 1)
+    genres   = [g["name"] for g in movie.get("genres", [])[:3]]
+    genre    = genres[0] if genres else "Film"
+    overview = movie.get("overview") or ""
 
-    user_msg = (
-        f"Movie: {title} ({year})\n"
-        f"Genres: {genres}\n"
-        f"Rating: {rating}/10\n"
-        f"Keywords: {keywords}\n"
-        f"Plot: {overview}\n\n"
-        f"Variation #{variation + 1}: Write a completely unique Bluesky post."
+    overview_hook = make_overview_hook(overview)
+    hashtags      = pick_hashtags(genres)
+
+    # Pick template based on variation so each account gets different style
+    template = TEMPLATES[variation % len(TEMPLATES)]
+
+    post = template.format(
+        title=title,
+        year=year,
+        rating=rating,
+        genre=genre,
+        overview_hook=overview_hook,
+        hashtags=hashtags,
     )
 
-    # ── Exact same call pattern as the working post.py ──
-    completion = nvidia_client.chat.completions.create(
-        model="deepseek-ai/deepseek-v4-flash",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_msg},
-        ],
-        temperature=0.92,
-        top_p=0.95,
-        max_tokens=200,
-    )
-    text = completion.choices[0].message.content.strip()
+    # Truncate if over 300 chars (keep CTA)
+    if len(post) > 300:
+        # Trim overview_hook to fit
+        excess = len(post) - 297
+        short_hook = overview_hook[:max(20, len(overview_hook) - excess - 3)] + "..."
+        post = template.format(
+            title=title,
+            year=year,
+            rating=rating,
+            genre=genre,
+            overview_hook=short_hook,
+            hashtags=hashtags,
+        )
+        if len(post) > 300:
+            post = post[:297] + "..."
 
-    # Strip surrounding quotes if model wraps them
-    if text.startswith('"') and text.endswith('"'):
-        text = text[1:-1]
-
-    # Safety truncate
-    if len(text) > 300:
-        text = text[:297] + "..."
-
-    return text
+    return post
 
 # ── Bluesky helpers ────────────────────────────────────────────────────────────
 def build_facets(text):
@@ -143,20 +225,11 @@ def build_facets(text):
             "index":    {"byteStart": start, "byteEnd": end},
             "features": [{"$type": "app.bsky.richtext.facet#tag", "tag": match.group(1)}],
         })
-    # URLs
-    for match in re.finditer(r"https?://[^\s\)\]\}\"\']+", text):
-        url   = match.group(0)
-        start = len(text[:match.start()].encode("utf-8"))
-        end   = len(text[:match.end()].encode("utf-8"))
-        facets.append({
-            "index":    {"byteStart": start, "byteEnd": end},
-            "features": [{"$type": "app.bsky.richtext.facet#link", "uri": url}],
-        })
-    # mycinebd.com plain text link
+    # mycinebd.com as clickable link
     link_text = "mycinebd.com"
     link_uri  = "https://mycinebd.com"
     idx = text.find(link_text)
-    if idx != -1 and not any("mycinebd" in str(f) for f in facets):
+    if idx != -1:
         start = len(text[:idx].encode("utf-8"))
         end   = len(text[:idx + len(link_text)].encode("utf-8"))
         facets.append({
@@ -224,7 +297,7 @@ def main():
     results = []
 
     for i, (account, movie_stub) in enumerate(zip(accounts, selected)):
-        print(f"\n{'━'*40}")
+        print(f"\n{'━'*45}")
         print(f"Account {account['id']}: {account['handle']}")
 
         try:
@@ -232,7 +305,6 @@ def main():
             title   = details.get("title", "Unknown")
             print(f"Movie   : {title}")
 
-            print(f"Generating post (variation {i+1})...")
             post_text = generate_post(details, variation=i)
             print(f"Post ({len(post_text)} chars):\n{post_text}\n")
 
@@ -250,11 +322,11 @@ def main():
                     print("Poster uploaded.")
 
             uri = bsky_post(session, post_text, blob=poster_blob, alt_text=alt_text)
-            print(f"Posted: {uri}")
+            print(f"Posted : {uri}")
             results.append({"account": account["handle"], "status": "success"})
 
         except Exception as e:
-            print(f"Failed: {e}")
+            print(f"Failed : {e}")
             results.append({"account": account["handle"], "status": "failed", "error": str(e)})
 
         if i < len(accounts) - 1:
@@ -264,9 +336,8 @@ def main():
 
     success = sum(1 for r in results if r["status"] == "success")
     failed  = sum(1 for r in results if r["status"] == "failed")
-    print(f"\n{'━'*40}")
+    print(f"\n{'━'*45}")
     print(f"Done: {success} success | {failed} failed")
-
     if success == 0:
         exit(1)
 
