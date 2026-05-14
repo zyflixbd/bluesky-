@@ -1,6 +1,5 @@
 import os
 import re
-import io
 import time
 import random
 import requests
@@ -107,10 +106,13 @@ def fetch_tmdb_movies() -> list[dict]:
     """
     Fetch trending movies (this week) from TMDB.
     Priority:
-      1. 2026 releases with vote_average >= 5  (sorted by vote desc)
-      2. Other years with vote_average >= 5     (sorted by vote desc)
-      3. Rest                                   (sorted by vote desc)
+      1. Current-year releases with vote_average >= 5  (sorted by vote desc)
+      2. Other years with vote_average >= 5            (sorted by vote desc)
+      3. Rest                                          (sorted by vote desc)
     """
+    # ✅ Bug 2 Fix: dynamic current year — আগে hardcoded "2026" ছিল
+    current_year = str(datetime.now().year)
+
     url = "https://api.themoviedb.org/3/trending/movie/week"
     r = requests.get(
         url,
@@ -137,9 +139,9 @@ def fetch_tmdb_movies() -> list[dict]:
         })
 
     def sort_key(mv):
-        is_2026   = mv["year"] == "2026"
-        good_vote = mv["rating"] >= 5
-        return (is_2026 and good_vote, good_vote, mv["rating"])
+        is_current = mv["year"] == current_year
+        good_vote  = mv["rating"] >= 5
+        return (is_current and good_vote, good_vote, mv["rating"])
 
     movies.sort(key=sort_key, reverse=True)
     return movies
@@ -166,31 +168,21 @@ def generate_post_text(angle_data: dict, movie: dict) -> str:
         overview = movie["overview"],
     )
 
-    post_text_only = ""
+    # ✅ Bug 1 Fix: stream=False — short output-এ streaming overhead বাদ, দ্রুততর
+    # ✅ thinking: False — reasoning tokens বন্ধ (সবচেয়ে বড় speed gain)
+    # ✅ max_tokens: 800 — 300-char post-এ 16384 লাগে না
     completion = nim_client.chat.completions.create(
         model="deepseek-ai/deepseek-v4-flash",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.8,
         top_p=0.95,
-        max_tokens=800,   # ✅ 300-char post-এ 16384 লাগে না — 800 যথেষ্ট
-        extra_body={"chat_template_kwargs": {"thinking": False}},  # ✅ thinking বন্ধ — সবচেয়ে বড় স্পিড গেইন
-        stream=True,
+        max_tokens=800,
+        extra_body={"chat_template_kwargs": {"thinking": False}},
+        stream=False,
     )
 
-    for chunk in completion:
-        if not getattr(chunk, "choices", None):
-            continue
-        delta = chunk.choices[0].delta
-
-        # ✅ FIX: reasoning/thinking tokens আলাদা রাখা হচ্ছে — caption-এ যাবে না
-        # reasoning = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
-        # শুধু actual post content নেওয়া হচ্ছে
-        content = getattr(delta, "content", None)
-        if content:
-            post_text_only += content
-
-    text = post_text_only.strip()
-    text = re.sub(r'^[""]|[""]$', '', text).strip()
+    text = completion.choices[0].message.content.strip()
+    text = re.sub(r'^["\u201c]|["\u201d]$', '', text).strip()
 
     if len(text) > 300:
         cutoff = text[:297].rsplit(" ", 1)[0]
@@ -334,7 +326,7 @@ def main():
 
         if i < len(accounts) - 1:
             print(f"  ⏳ Waiting 3 seconds...")
-            time.sleep(3)  # ✅ 10s → 3s, rate limit এড়াতে এটুকুই যথেষ্ট
+            time.sleep(3)
 
     success = sum(1 for r in results if r["status"] == "success")
     failed  = sum(1 for r in results if r["status"] == "failed")
